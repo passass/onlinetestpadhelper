@@ -34,6 +34,27 @@ def call_procedure(proc_name):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/insert/<table_name>', methods=['POST'])
+def insert_data(table_name):
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return jsonify({"error": "Expected JSON object"}), 400
+
+    columns = list(data.keys())
+    values_placeholder = ", ".join([f":{col}" for col in columns])
+    columns_sql = ", ".join(columns)
+    
+    sql = f"INSERT INTO :table_name ({columns_sql}) VALUES ({values_placeholder}) RETURNING id"
+
+    try:
+        result = db.session.execute(text(sql), data | {"table_name": table_name})
+        new_id = result.fetchone()
+        db.session.commit()
+        return jsonify({"id": new_id, "message": "Record created"}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/dbcontrol/table/<table_name>')
 def db_control(table_name):
     data = request.args
