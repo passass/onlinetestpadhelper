@@ -1,3 +1,4 @@
 Flask
 flask_sqlalchemy
-SQLalchemy
+SQLAlchemy
+psycopg2
