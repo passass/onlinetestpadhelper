@@ -63,7 +63,7 @@ def insert_data(table_name):
         params.update({p: record[col] for p, col in zip(param_names, columns)})
 
     values_clause = ", ".join(placeholders)
-    sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES {values_clause} RETURNING id"
+    sql = f"INSERT INTO {table_name} ({columns_sql}) VALUES {values_clause} RETURNING *"
 
     try:
         result = db.session.execute(text(sql), params)
