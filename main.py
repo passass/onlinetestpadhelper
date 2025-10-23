@@ -67,12 +67,9 @@ def insert_data(table_name):
 
     try:
         result = db.session.execute(text(sql), params)
-        inserted_ids = [row[0] for row in result.fetchall()]
+        inserted_rows = result.fetchall()
         db.session.commit()
-        return jsonify({
-            "inserted_count": len(inserted_ids),
-            "ids": inserted_ids
-        }), 201
+        return jsonify(inserted_rows), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
