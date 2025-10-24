@@ -19,16 +19,31 @@ db = SQLAlchemy(app)
 def is_valid_identifier(name):
     return re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name) is not None
 
-@app.route('/dbcontrol/rpc/<proc_name>', methods=['POST'])
+@app.route('/dbcontrol/rpc/<proc_name>', methods=['GET', 'POST'])
 def call_procedure(proc_name):
+    if not is_valid_identifier(proc_name):
+        return jsonify({"error": "Invalid table name"}), 400
 
-    args = request.get_json()
+    args = request.get_json() if request.method == "POST" else request.args
 
-    placeholders = ', '.join([f':arg{i}' for i in range(len(args))])
+    if isinstance(args, list):
+        placeholders = ', '.join([f':arg{i}' for i in range(len(args))])
+        params = {f'arg{i}': val for i, val in enumerate(args)}
+    elif isinstance(args, dict):
+        placeholders_list = []
+        params = {}
+        for i, (argname, value) in enumerate(args.items()):
+            if not is_valid_identifier(argname):
+                return jsonify({"error": "Invalid table name"}), 400
+            placeholders_list.append(f'{argname} => :arg{i}')
+            params[f":arg{i}"] = value
+    
+        placeholders = ', '.join(placeholders_list)
+    else:
+        return jsonify({"error": "Invalid data"}), 400
 
     sql = f"SELECT * FROM {proc_name}({placeholders})"
 
-    params = {f'arg{i}': val for i, val in enumerate(args)}
 
     try:
         result = db.session.execute(text(sql), params)
