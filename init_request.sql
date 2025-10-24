@@ -108,3 +108,69 @@ BEGIN
     RETURNING *;
 END;
 $$;
+
+
+CREATE OR REPLACE FUNCTION get_question_with_answers(
+    p_question_text TEXT, -- формулировка вопроса
+    p_answers TEXT[], -- массив из строк ответов
+    p_question_type INTEGER
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    result JSONB;
+
+    new_question_data questions;
+    single_answer answers;
+    new_answers_data answers[] := '{}';
+	answer_text TEXT;
+BEGIN
+    SELECT jsonb_build_object(
+        'question', row_to_json(q),
+        'answers', (
+            SELECT jsonb_agg(row_to_json(a))
+            FROM answers a
+            WHERE a.question_id = q.id
+        ),
+        "created_something", false
+    ) INTO result
+    FROM questions q
+    WHERE q.question = p_question_text AND (
+        SELECT ARRAY_AGG(a.answer ORDER BY a.answer)
+        FROM answers a
+        WHERE a.question_id = q.id
+    ) = (
+        SELECT ARRAY_AGG(answer ORDER BY answer)
+        FROM unnest(p_answers) AS answer
+    );
+    
+    IF result IS NOT NULL THEN
+        RETURN COALESCE(result, '{"question": null, "answers": []}'::JSONB);
+    END IF;
+
+    
+    INSERT INTO questions (question, question_type)
+    VALUES (p_question_text, p_question_type)
+    RETURNING * INTO new_question_data;
+
+    FOREACH answer_text IN ARRAY p_answers
+    LOOP
+        INSERT INTO answers (answer, question_id)
+        VALUES (answer_text, new_question_data.id)
+        RETURNING * INTO single_answer;
+        
+        new_answers_data := array_append(new_answers_data, single_answer);
+    END LOOP;
+
+    RETURN jsonb_build_object(
+        'question', row_to_json(new_question_data),
+        'answers', (
+            SELECT jsonb_agg(row_to_json(a))
+            FROM unnest(new_answers_data) a
+        ),
+        "created_something", true
+    );
+END;
+$$;
+

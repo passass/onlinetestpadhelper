@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.engine.row import Row
 from sqlalchemy import text
 from sqlalchemy.sql import quoted_name
 import os
@@ -36,7 +37,7 @@ def call_procedure(proc_name):
             if not is_valid_identifier(argname):
                 return jsonify({"error": "Invalid table name"}), 400
             placeholders_list.append(f'{argname} => :arg{i}')
-            params[f":arg{i}"] = value
+            params[f"arg{i}"] = value
     
         placeholders = ', '.join(placeholders_list)
     else:
@@ -46,12 +47,32 @@ def call_procedure(proc_name):
 
 
     try:
-        result = db.session.execute(text(sql), params)
-        columns = result.keys()
-        rows = [dict(zip(columns, row)) for row in result.fetchall()]
-        return jsonify(rows)
+        sql_request = db.session.execute(text(sql), params)
+        db.session.commit()
+        #columns = result.keys()
+        #rows = sql_result.fetchall()#[dict(zip(result.keys(), row)) for row in result.fetchall()]
+
+        sql_result = sql_request.fetchall()
+
+        result = None
+
+        #sql_result_scalar = sql_request.first()
+        #if isinstance(sql_result_scalar, dict):
+        #    result = sql_result_scalar
+        if isinstance(sql_result, Row):
+            result = [sql_result._asdict()]
+        elif isinstance(sql_result, list) and len(sql_result) > 0 and isinstance(sql_result[0]._tuple()[0], dict):
+            result = [row[0] if isinstance(row, Row) else row for row in sql_result]
+        else:
+            result = [row._asdict() for row in sql_result]
+
+        if result:
+            return jsonify(result)
+    
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+    return jsonify([]), 200
 
 def insert_data(table_name):
     if not is_valid_identifier(table_name):
