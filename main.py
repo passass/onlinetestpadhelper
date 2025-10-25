@@ -53,13 +53,19 @@ def call_procedure(proc_name):
         #rows = sql_result.fetchall()#[dict(zip(result.keys(), row)) for row in result.fetchall()]
 
         sql_result = sql_request.fetchall()
+        try:
+            sql_result_first_dict = sql_result[0]._asdict()
+        except IndexError:
+            sql_result_first_dict = None
 
         result = None
 
         #sql_result_scalar = sql_request.first()
         #if isinstance(sql_result_scalar, dict):
         #    result = sql_result_scalar
-        if isinstance(sql_result, Row):
+        if sql_result_first_dict and sql_result_first_dict.get(proc_name):
+            result = sql_result_first_dict.get(proc_name)
+        elif isinstance(sql_result, Row):
             result = [sql_result._asdict()]
         elif isinstance(sql_result, list) and len(sql_result) > 0 and isinstance(sql_result[0]._tuple()[0], dict):
             result = [row[0] if isinstance(row, Row) else row for row in sql_result]

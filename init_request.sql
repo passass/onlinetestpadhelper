@@ -133,7 +133,7 @@ BEGIN
             FROM answers a
             WHERE a.question_id = q.id
         ),
-        "created_something", false
+        'created_something', false
     ) INTO result
     FROM questions q
     WHERE q.question = p_question_text AND (
@@ -169,7 +169,7 @@ BEGIN
             SELECT jsonb_agg(row_to_json(a))
             FROM unnest(new_answers_data) a
         ),
-        "created_something", true
+        'created_something', true
     );
 END;
 $$;
