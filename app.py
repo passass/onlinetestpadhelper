@@ -13,9 +13,20 @@ except Exception:
     pass
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///local.db').replace("postgres://", "postgresql://")
 
-db = SQLAlchemy(app)
+db_type = "pg"
+
+def connect_to_psql():
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///local.db').replace("postgres://", "postgresql://")
+    return SQLAlchemy(app)
+
+if db_type == "sqlite":
+    from sqlite_connect import connect_to_sqlite
+    db = connect_to_sqlite(app)
+else:
+    db = connect_to_psql()
+
+
 
 def is_valid_identifier(name):
     return re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name) is not None
@@ -49,8 +60,6 @@ def call_procedure(proc_name):
     try:
         sql_request = db.session.execute(text(sql), params)
         db.session.commit()
-        #columns = result.keys()
-        #rows = sql_result.fetchall()#[dict(zip(result.keys(), row)) for row in result.fetchall()]
 
         sql_result = sql_request.fetchall()
         try:
@@ -60,9 +69,6 @@ def call_procedure(proc_name):
 
         result = None
 
-        #sql_result_scalar = sql_request.first()
-        #if isinstance(sql_result_scalar, dict):
-        #    result = sql_result_scalar
         if sql_result_first_dict and sql_result_first_dict.get(proc_name):
             result = sql_result_first_dict.get(proc_name)
         elif isinstance(sql_result, Row):
@@ -141,6 +147,12 @@ def get_table_data(table_name):
         print(str(e))
         return jsonify({"error": str(e)}), 500
 
+@app.route('/dbcontrol/sqlrequest', methods=["POST"])
+def db_control_sqlrequest():
+    result = db.session.execute(request.get_json().get("request"))
+    db.session.commit()
+    return jsonify(result.fetchall()), 200
+
 @app.route('/dbcontrol/table/<table_name>', methods=["GET", "POST"])
 def db_control(table_name):
     if request.method == "GET":
@@ -159,5 +171,8 @@ def after_request(response):
 
 
 if __name__ == '__main__':
+    if db_type == "sqlite":
+        with app.app_context():
+            db.create_all()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)

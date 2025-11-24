@@ -1,27 +1,46 @@
 CREATE TABLE IF NOT EXISTS question_types (
     id SERIAL PRIMARY KEY,
-    name TEXT
-);
-CREATE TABLE IF NOT EXISTS questions (
-    id SERIAL PRIMARY KEY,
-    question TEXT,
-    question_type SERIAL,
-    
-    FOREIGN KEY (question_type) REFERENCES question_types(id) ON DELETE SET NULL
+    name TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS answers (
+CREATE TABLE IF NOT EXISTS tests (
     id SERIAL PRIMARY KEY,
-    answer TEXT,
-    question_id SERIAL,
-    
-    FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
+    name TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     created_at timestamptz DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS questions (
+    id SERIAL PRIMARY KEY,
+    question TEXT NOT NULL,
+    question_type SERIAL,
+    test_id SERIAL,
+    
+    FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE,
+    FOREIGN KEY (question_type) REFERENCES question_types(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_free_answers (
+    user_id SERIAL,
+    question_id SERIAL,
+    answer TEXT NOT NULL,
+
+    PRIMARY KEY (question_id, user_id),
+    FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS answers (
+    id SERIAL PRIMARY KEY,
+    answer TEXT NOT NULL,
+    question_id SERIAL,
+    
+    FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS user_answers (
     user_id SERIAL,
     question_id SERIAL,
@@ -32,8 +51,8 @@ CREATE TABLE IF NOT EXISTS user_answers (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
     FOREIGN KEY (answer_id) REFERENCES answers(id) ON DELETE CASCADE
-    
 );
+
 CREATE TABLE IF NOT EXISTS correct_answers (
     id SERIAL PRIMARY KEY,
     question_id SERIAL,
@@ -53,11 +72,33 @@ BEGIN
         'Множественный выбор'
     ), (
         'Текстовый ответ'
+    ), (
+        'Слайдер'
+    ), (
+        'Сопоставление'
+    ), (
+        'Пропуски'
+    ), (
+        'Правильная последовательность'
     );
     END IF;
 END $$;
 
-
+CREATE OR REPLACE FUNCTION record_user_answer(
+    p_user_id INTEGER,
+    p_question_id INTEGER,
+    p_answer_text TEXT
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO user_free_answers (user_id, question_id, answer)
+    VALUES (p_user_id, p_question_id, p_answer_text)
+    ON CONFLICT (user_id, question_id) DO UPDATE
+    SET answer = p_answer_text;
+END;
+$$;
 
 
 CREATE OR REPLACE FUNCTION record_user_answer(
@@ -109,10 +150,9 @@ BEGIN
 END;
 $$;
 
-
 CREATE OR REPLACE FUNCTION get_question_with_answers(
+    p_test_id INTEGER,
     p_question_text TEXT, -- формулировка вопроса
-    p_answers TEXT[], -- массив из строк ответов
     p_question_type INTEGER
 )
 RETURNS JSONB
@@ -120,8 +160,45 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     result JSONB;
-
     new_question_data questions;
+BEGIN
+    SELECT jsonb_build_object(
+        'question', row_to_json(q),
+        'created_something', false
+    ) INTO result
+    FROM questions q
+    WHERE q.question = p_question_text;
+    
+    IF result IS NOT NULL THEN
+        RETURN COALESCE(result, '{"question": null, "answers": []}'::JSONB);
+    END IF;
+
+    
+    INSERT INTO questions (question, question_type, test_id)
+    VALUES (p_question_text, p_question_type, p_test_id)
+    RETURNING * INTO new_question_data;
+
+    RETURN jsonb_build_object(
+        'question', row_to_json(new_question_data),
+        'created_something', true
+    );
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION get_question_with_answers(
+    p_test_id INTEGER,
+    p_question_text TEXT, -- формулировка вопроса
+    p_question_type INTEGER,
+    p_answers TEXT[] -- массив из строк ответов
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    result JSONB;
+    new_question_data questions;
+
     single_answer answers;
     new_answers_data answers[] := '{}';
 	answer_text TEXT;
@@ -150,8 +227,8 @@ BEGIN
     END IF;
 
     
-    INSERT INTO questions (question, question_type)
-    VALUES (p_question_text, p_question_type)
+    INSERT INTO questions (question, question_type, test_id)
+    VALUES (p_question_text, p_question_type, p_test_id)
     RETURNING * INTO new_question_data;
 
     FOREACH answer_text IN ARRAY p_answers
@@ -174,3 +251,70 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION get_answers_count(
+    p_question_id INTEGER
+)
+RETURNS TABLE(
+    answer_id INTEGER,
+    answer_count BIGINT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        a.id, 
+        COUNT(ua.answer_id) AS answer_count
+    FROM answers a
+    JOIN questions q ON a.question_id = q.id
+    LEFT JOIN user_answers ua ON a.id = ua.answer_id
+    WHERE q.id = p_question_id
+    GROUP BY a.id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_free_answers_count(
+    p_question_id INTEGER
+)
+RETURNS TABLE(
+    answer_text TEXT,
+    answer_count BIGINT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        ufa.answer AS "answer_text", 
+        COUNT(ufa.answer) AS "answer_count"
+    FROM user_free_answers ufa
+    JOIN questions q ON ufa.question_id = q.id
+    WHERE q.id = p_question_id
+    GROUP BY ufa.answer;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_test(p_test_name TEXT)
+RETURNS SETOF tests
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    existing_id INTEGER;
+BEGIN
+    SELECT t.id INTO existing_id
+    FROM tests t
+    WHERE t.name = p_test_name;
+    
+    IF existing_id IS NULL THEN
+        RETURN QUERY
+        INSERT INTO tests (name)
+        VALUES (p_test_name)
+        RETURNING *;
+    ELSE
+        RETURN QUERY
+        SELECT *
+        FROM tests t
+        WHERE t.id = existing_id;
+    END IF;
+END;
+$$;
