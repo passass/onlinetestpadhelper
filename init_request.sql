@@ -27,8 +27,11 @@ CREATE TABLE IF NOT EXISTS user_free_answers (
     user_id SERIAL,
     question_id SERIAL,
     answer TEXT NOT NULL,
+    user_test_result_id INT,
+    answered_at timestamptz DEFAULT NOW(),
 
     PRIMARY KEY (question_id, user_id),
+    FOREIGN KEY (user_test_result_id) REFERENCES user_test_result(id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -46,6 +49,7 @@ CREATE TABLE IF NOT EXISTS user_answers (
     question_id INT,
     answer_id INT,
     user_test_result_id INT,
+    answered_at timestamptz DEFAULT NOW(),
 
     PRIMARY KEY (user_id, question_id, answer_id),
     
@@ -77,8 +81,8 @@ CREATE TABLE IF NOT EXISTS user_test_result (
 
 
 CREATE OR REPLACE FUNCTION record_user_test_result(
-    p_user_id INTEGER,
     p_test_id INTEGER,
+    p_user_id INTEGER,
     p_result INTEGER
 )
 RETURNS VOID
@@ -87,13 +91,56 @@ AS $$
 DECLARE
     test_result user_test_result;
 BEGIN
-    INSERT INTO user_test_result (test_id, user_id, result) 
-    VALUES (p_test_id, p_user_id, p_result)
-    RETURNING * INTO test_result;
+    IF EXISTS (SELECT * FROM user_answers WHERE user_test_result_id IS NULL) THEN
+        INSERT INTO user_test_result (test_id, user_id, result) 
+        VALUES (p_test_id, p_user_id, p_result)
+        RETURNING * INTO test_result;
 
-    UPDATE user_answers
-    SET user_test_result_id = test_result.id
-    WHERE user_test_result_id IS NULL;
+        UPDATE user_answers
+        SET user_test_result_id = test_result.id
+        WHERE user_test_result_id IS NULL;
+
+        UPDATE user_free_answers
+        SET user_test_result_id = test_result.id
+        WHERE user_test_result_id IS NULL;
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_best_answer_by_user_answers(
+    p_question_id INTEGER
+)
+RETURNS TABLE(
+    answer_id INTEGER,
+    answer_text TEXT,
+    answered_at TIMESTAMPTZ,
+    best_user_id INTEGER,
+    best_result INTEGER
+) 
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH best_test_taker AS (
+        SELECT 
+            utr.user_id,
+            utr.result
+        FROM user_test_result utr
+        WHERE utr.test_id = (SELECT test_id FROM questions WHERE id = p_question_id)
+        ORDER BY utr.result DESC
+        LIMIT 1
+    )
+    SELECT 
+        a.id as answer_id,
+        a.answer as answer_text,
+        ua.answered_at,
+        bt.user_id as best_user_id,
+        bt.result as best_result
+    FROM answers a
+    JOIN user_answers ua ON a.id = ua.answer_id
+    JOIN best_test_taker bt ON ua.user_id = bt.user_id
+    WHERE ua.question_id = p_question_id
+    ORDER BY ua.answered_at;
 END;
 $$;
 
@@ -126,11 +173,16 @@ CREATE OR REPLACE FUNCTION record_user_answer(
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    user_free_answers_record user_free_answers;
 BEGIN
     INSERT INTO user_free_answers (user_id, question_id, answer)
     VALUES (p_user_id, p_question_id, p_answer_text)
     ON CONFLICT (user_id, question_id) DO UPDATE
-    SET answer = p_answer_text;
+    SET answer = p_answer_text
+    RETURNING * INTO user_free_answers_record;
+
+    user_free_answers_record.answered_at = NOW();
 END;
 $$;
 
@@ -143,6 +195,8 @@ CREATE OR REPLACE FUNCTION record_user_answer(
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    user_answers_records user_answers[];
 BEGIN
     DELETE FROM user_answers
     WHERE user_id = p_user_id
