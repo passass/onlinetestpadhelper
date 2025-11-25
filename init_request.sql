@@ -42,12 +42,14 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 
 CREATE TABLE IF NOT EXISTS user_answers (
-    user_id SERIAL,
-    question_id SERIAL,
-    answer_id SERIAL,
+    user_id INT,
+    question_id INT,
+    answer_id INT,
+    user_test_result_id INT,
 
     PRIMARY KEY (user_id, question_id, answer_id),
     
+    FOREIGN KEY (user_test_result_id) REFERENCES user_test_result(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
     FOREIGN KEY (answer_id) REFERENCES answers(id) ON DELETE CASCADE
@@ -62,6 +64,38 @@ CREATE TABLE IF NOT EXISTS correct_answers (
     FOREIGN KEY (answer_id) REFERENCES answers(id)  ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS user_test_result (
+    id SERIAL PRIMARY KEY,
+    test_id INT,
+    user_id INT,
+    result INT,
+    created_at timestamptz DEFAULT NOW(),
+
+    FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+
+CREATE OR REPLACE FUNCTION record_user_test_result(
+    p_user_id INTEGER,
+    p_test_id INTEGER,
+    p_result INTEGER
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    test_result user_test_result;
+BEGIN
+    INSERT INTO user_test_result (test_id, user_id, result) 
+    VALUES (p_test_id, p_user_id, p_result)
+    RETURNING * INTO test_result;
+
+    UPDATE user_answers
+    SET user_test_result_id = test_result.id
+    WHERE user_test_result_id IS NULL;
+END;
+$$;
 
 DO $$
 BEGIN
