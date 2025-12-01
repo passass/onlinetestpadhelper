@@ -45,15 +45,14 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 
 CREATE TABLE IF NOT EXISTS user_answers (
+    id SERIAL PRIMARY KEY,
     user_id INT,
     question_id INT,
     answer_id INT,
     user_test_result_id INT,
     answered_at timestamptz DEFAULT NOW(),
-
-    PRIMARY KEY (user_id, question_id, answer_id),
     
-    FOREIGN KEY (user_test_result_id) REFERENCES user_test_result(id) ON DELETE CASCADE,
+    --FOREIGN KEY (user_test_result_id) REFERENCES user_test_result(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
     FOREIGN KEY (answer_id) REFERENCES answers(id) ON DELETE CASCADE
@@ -91,18 +90,17 @@ AS $$
 DECLARE
     test_result user_test_result;
 BEGIN
-    IF EXISTS (SELECT * FROM user_answers WHERE user_test_result_id IS NULL) THEN
+    IF EXISTS (SELECT * FROM user_answers ua JOIN questions q ON ua.question_id = q.id WHERE q.test_id = p_test_id AND user_test_result_id IS NULL) THEN
         INSERT INTO user_test_result (test_id, user_id, result) 
         VALUES (p_test_id, p_user_id, p_result)
         RETURNING * INTO test_result;
 
         UPDATE user_answers
         SET user_test_result_id = test_result.id
-        WHERE user_test_result_id IS NULL;
-
-        UPDATE user_free_answers
-        SET user_test_result_id = test_result.id
-        WHERE user_test_result_id IS NULL;
+        FROM questions
+        WHERE user_answers.question_id = questions.id
+        AND questions.test_id = p_test_id
+        AND user_answers.user_test_result_id IS NULL;
     END IF;
 END;
 $$;
@@ -121,26 +119,18 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     RETURN QUERY
-    WITH best_test_taker AS (
-        SELECT 
-            utr.user_id,
-            utr.result
-        FROM user_test_result utr
-        WHERE utr.test_id = (SELECT test_id FROM questions WHERE id = p_question_id)
-        ORDER BY utr.result DESC
-        LIMIT 1
-    )
     SELECT 
-        a.id as answer_id,
-        a.answer as answer_text,
+        a.id AS answer_id,
+        a.answer AS answer_text,
         ua.answered_at,
-        bt.user_id as best_user_id,
-        bt.result as best_result
+        utr.user_id AS best_user_id,
+        utr.result AS best_result
     FROM answers a
     JOIN user_answers ua ON a.id = ua.answer_id
-    JOIN best_test_taker bt ON ua.user_id = bt.user_id
+    JOIN user_test_result utr ON ua.user_test_result_id = utr.id
     WHERE ua.question_id = p_question_id
-    ORDER BY ua.answered_at;
+    ORDER BY utr.result DESC, ua.answered_at DESC
+    LIMIT 1;
 END;
 $$;
 
@@ -196,16 +186,26 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    user_answers_records user_answers[];
+    current_answers INTEGER[];
 BEGIN
-    DELETE FROM user_answers
+    SELECT array_agg(answer_id ORDER BY answer_id)
+    INTO current_answers
+    FROM user_answers
     WHERE user_id = p_user_id
-      AND question_id = p_question_id;
+      AND question_id = p_question_id
+      AND user_test_result_id IS NULL;
 
-    IF p_answer_ids IS NOT NULL AND array_length(p_answer_ids, 1) > 0 THEN
-        INSERT INTO user_answers (user_id, question_id, answer_id)
-        SELECT p_user_id, p_question_id, unnest(p_answer_ids);
+    IF (SELECT array_agg(elem ORDER BY elem) FROM unnest(current_answers) AS elem) IS NOT DISTINCT FROM
+       (SELECT array_agg(elem ORDER BY elem) FROM unnest(p_answer_ids) AS elem) THEN
+        RETURN;
     END IF;
+
+    DELETE FROM user_answers
+    WHERE user_id = p_user_id AND question_id = p_question_id AND
+    user_test_result_id IS NULL;
+
+    INSERT INTO user_answers (user_id, question_id, answer_id)
+    SELECT p_user_id, p_question_id, unnest(p_answer_ids);
 END;
 $$;
 

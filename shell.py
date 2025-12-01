@@ -10,7 +10,13 @@ def get_connection():
         except ImportError:
             pass
         
-        conn = psycopg2.connect("postgresql://postgres.drlwwujcacqiwxvyeaqe:Iwue8yxdIBexVkey@aws-1-us-east-1.pooler.supabase.com:5432/postgres")
+        conn = psycopg2.connect(**{
+            "host": "localhost",
+            "port": 5432,
+            "database": "kursovoi",
+            "user": "misha",
+            "password": "1234"
+        })
         
         """conn = psycopg2.connect(
             host=os.getenv('DB_HOST', 'localhost'),
