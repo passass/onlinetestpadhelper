@@ -33,7 +33,7 @@ const oth_form_data = {
 	question_type: null
 }
 const api_key = "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";
-const hf_api_key = "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";
+const hf_api_key = "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";
 const AIRequestTextCommonStart = "Отвечай на русском языке. Не используй спец символы по типу * и # для выделения текста. Не надо объяснений, пояснений и своих размышлений. ";
 
 const question_types = {
@@ -116,11 +116,18 @@ const aiModels = [
 		modelNameUser: "Z.AI GLM-4.6 HF",
 		textElement: null,
 	},*/
-	{
+	/*{
 		url: "https://router.huggingface.co/v1/chat/completions",
 		api_key: hf_api_key,
 		modelName: "meta-llama/Llama-3.1-8B-Instruct:novita",
 		modelNameUser: "Llama 3.1 8B",
+		textElement: null,
+	},*/
+	{
+		url: "https://router.huggingface.co/v1/chat/completions",
+		api_key: hf_api_key,
+		modelName: "moonshotai/Kimi-K2-Thinking:novita",
+		modelNameUser: "Kimi-K2",
 		textElement: null,
 	},
 	{
@@ -209,9 +216,17 @@ function getQuestionElement() {
 	return qtext ?? qcontainer_div
 }
 
-function getQuestionString() {
+function getQuestionStrings() {
+	const fillinblank_contrainer = document.querySelectorAll("div.qcontainer > div > div.fillinblank-contrainer");
+	if (fillinblank_contrainer.length != 0)
+		return fillinblank_contrainer;
+
 	const qtext = getQuestionElement();
-	return document.querySelector("div.qcontainer > div > div.fillinblank-contrainer") ?? (qtext && qtext.querySelector("p")) ?? document.querySelector("#d-q-ans-container > div.slider-container > div.item > div.text");
+	if (qtext && qtext.querySelectorAll("p").length != 0)
+		return qtext.querySelectorAll("p");
+
+	const sliderquestion = document.querySelectorAll("#d-q-ans-container > div.slider-container > div.item > div.text")
+	return sliderquestion;
 }
 
 function getAnswerInput() {
@@ -629,14 +644,6 @@ const db = {
 	callFunction: async function(functionName, body) {
 		return await db.makeRequest(`rpc/${functionName}`, "POST", body);
 	}
-
-	/*
-		{
-			p_user_id: userId,
-			p_question_text: question_text,
-			p_selected_answer_text: selected_answer_text
-		}
-	*/
 }
 
 function handleFormSubmit() {
@@ -870,13 +877,19 @@ async function getQuestionData() {
 	}
 
 	const response_get_question_with_answers_body = {
-		p_question_text: await getQuestionString().textContent.trim(),
+		p_question_text: await Array.from(getQuestionStrings()).map((value, index, array) => value.textContent).join(" ").trim(),
 		p_question_type: oth_form_data.question_type,
 		p_test_id: oth_form_data.test_data.id
 	}
 
-	if (oth_form_data.question_type === 1 || oth_form_data.question_type === 2)
-		response_get_question_with_answers_body.p_answers = oth_form_data.question_variants;
+	if (oth_form_data.question_type === 1 || oth_form_data.question_type === 2) {
+		response_get_question_with_answers_body.p_answers = 
+			oth_form_data.question_variants
+			.filter((value, index, array) => value.length != 0);
+		if (response_get_question_with_answers_body.p_answers.length == 0)
+			return;
+	}
+		
 
 	const response_get_question_with_answers = await db.callFunction("get_question_with_answers", response_get_question_with_answers_body)
 
@@ -925,8 +938,9 @@ async function getQuestionData() {
 		if (!response.ok) return;
 
 		bestAnswer = await response.json()
-		if (!bestAnswer) {
+		if (bestAnswer.length == 0) {
 			oth_form_data.best_user_answer_element.textContent = "Лучшего ответа не найдено";
+			return;
 		}
 
 		console.log(bestAnswer)
@@ -955,18 +969,20 @@ function createUserOutput() {
 
 	let el_question_string, question_string, question_variants, question_type;
 	try {
-		el_question_string = getQuestionString();
-		question_string = el_question_string.textContent;
+		el_question_string = getQuestionStrings();
+		question_string = Array.from(el_question_string).map((value, index, array) => value.textContent).join(" ").trim();
 
-		el_question_string.onselectstart = function() {
-			return false;
-		};
+		for (let el of el_question_string) {
+			el.onselectstart = function() {
+				return false;
+			};
 
-		el_question_string.unselectable = "on";
+			el.unselectable = "on";
 
-		el_question_string.addEventListener("dblclick", function(e) {
-			qtext_div.style.display = (qtext_div.style.display === "block" || qtext_div.style.display === null) ? "none" : "block";
-		});
+			el.addEventListener("dblclick", function(e) {
+				qtext_div.style.display = (qtext_div.style.display === "block" || qtext_div.style.display === null) ? "none" : "block";
+			});
+		}
 
 		const getQuestionVariants_result = getQuestionVariants();
 		question_variants = getQuestionVariants_result[0]
@@ -988,7 +1004,15 @@ function createUserOutput() {
 	}
 
 	if (question_types[question_type] && question_types[question_type].getAITextRequest) {
-		const AIRequestText = AIRequestTextCommonStart + question_types[question_type].getAITextRequest(question_string, question_variants);
+		const testTitle = getTestTitle();
+		let testPrefix;
+		if (testTitle && testTitle.length != 0)
+			testPrefix = ` Заголовок данного теста: ${testTitle}.`
+		else
+			testPrefix = "";
+		const AIRequestText = AIRequestTextCommonStart
+			+ testPrefix
+			+ question_types[question_type].getAITextRequest(question_string, question_variants);
 
 		
 		const AIRequestCopyTextButton = document.createElement("input");
@@ -1015,6 +1039,7 @@ function createUserOutput() {
 				});
 			});
 	}
+
 
 	oth_form_data.question_type = question_type
 	oth_form_data.el_answer_text = el_answer_text
