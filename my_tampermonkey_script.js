@@ -32,8 +32,7 @@ const oth_form_data = {
 	el_answer_text: null,
 	question_type: null
 }
-const api_key = "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";
-const hf_api_key = "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";
+
 const AIRequestTextCommonStart = "Отвечай на русском языке. Не используй спец символы по типу * и # для выделения текста. Не надо объяснений, пояснений и своих размышлений. ";
 
 const question_types = {
@@ -104,35 +103,35 @@ const aiModels = [
 	},
 	{
 		url: "https://router.huggingface.co/v1/chat/completions",
-		api_key: hf_api_key,
+		api_key: window.hf_api_key,
 		modelName: "Qwen/Qwen3-4B-Instruct-2507:nscale",
 		modelNameUser: "Qwen3 4B Instruct 2507",
 		textElement: null,
 	},
 	/*{
 		url: "https://router.huggingface.co/v1/chat/completions",
-		api_key: hf_api_key,
+		api_key: window.hf_api_key,
 		modelName: "zai-org/GLM-4.6:novita",
 		modelNameUser: "Z.AI GLM-4.6 HF",
 		textElement: null,
 	},*/
 	/*{
 		url: "https://router.huggingface.co/v1/chat/completions",
-		api_key: hf_api_key,
+		api_key: window.hf_api_key,
 		modelName: "meta-llama/Llama-3.1-8B-Instruct:novita",
 		modelNameUser: "Llama 3.1 8B",
 		textElement: null,
 	},*/
 	{
 		url: "https://router.huggingface.co/v1/chat/completions",
-		api_key: hf_api_key,
+		api_key: window.hf_api_key,
 		modelName: "moonshotai/Kimi-K2-Thinking:novita",
 		modelNameUser: "Kimi-K2",
 		textElement: null,
 	},
 	{
 		url: "https://router.huggingface.co/v1/chat/completions",
-		api_key: hf_api_key,
+		api_key: window.hf_api_key,
 		modelName: "deepseek-ai/DeepSeek-V3.2-Exp:novita",
 		modelNameUser: "DeepSeek V3.2 Exp HF",
 		textElement: null,
@@ -455,7 +454,7 @@ function getAIAnswerHF(AIModel, content, callback) {
 	fetch(AIModel.url ?? "https://openrouter.ai/api/v1/chat/completions", {
 		method: "POST",
 		headers: {
-			Authorization: AIModel.api_key ?? `Bearer ${api_key}`,
+			Authorization: AIModel.api_key ?? `Bearer ${window.sk_api_key}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
@@ -483,7 +482,7 @@ function getAIAnswer_common(AIModel, content, callback) {
 	fetch(AIModel.url ?? "https://openrouter.ai/api/v1/chat/completions", {
 		method: "POST",
 		headers: {
-			Authorization: `Bearer ${AIModel.api_key ?? api_key}`,
+			Authorization: `Bearer ${AIModel.api_key ?? window.sk_api_key}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({

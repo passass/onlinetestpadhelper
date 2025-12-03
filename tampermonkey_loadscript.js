@@ -11,6 +11,8 @@
 
 (function () {
     "use strict";
+    window.sk_api_key = "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";
+	window.hf_api_key = "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";
     const body_el = document.getElementsByTagName("body")[0];
     const connect_el = document.createElement("script");
     connect_el.src = "https://raw.githack.com/passass/onlinetestpadhelper/main/my_tampermonkey_script.js";
