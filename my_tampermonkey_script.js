@@ -33,7 +33,7 @@ const oth_form_data = {
 	question_type: null
 }
 const api_key = "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";
-const hf_api_key = "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";
+const hf_api_key = "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";
 const AIRequestTextCommonStart = "Отвечай на русском языке. Не используй спец символы по типу * и # для выделения текста. Не надо объяснений, пояснений и своих размышлений. ";
 
 const question_types = {
