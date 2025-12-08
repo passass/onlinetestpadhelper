@@ -99,6 +99,7 @@ const aiModels = [
 		modelName: "gemini-2.5-flash",
 		modelNameUser: "gemini 2.5 flash",
 		textElement: null,
+		api_key: "AIzaSyDzmRqnMfAx0bR4-rESlJH19xtDfyIeaZs",
 		type: "googleai",
 	},
 	{
@@ -936,13 +937,11 @@ async function getQuestionData() {
 	.then(async (response) => {
 		if (!response.ok) return;
 
-		bestAnswer = await response.json()
+		let bestAnswer = await response.json()
 		if (bestAnswer.length == 0) {
 			oth_form_data.best_user_answer_element.textContent = "Лучшего ответа не найдено";
 			return;
 		}
-
-		console.log(bestAnswer)
 
 		oth_form_data.best_user_answer_element.textContent = `Лучший ответ из пользователей - ${bestAnswer[0].best_result}, ответ: ${await bestAnswer.reduce((prev, cur) => (prev.answer_text ?? "") + cur.answer_text, "")}`;
 	})
@@ -1028,14 +1027,17 @@ function createUserOutput() {
 		if (isSendingAIRequest && AIRequestText != "")
 			aiModels.forEach((value, index, arr) => {
 				const answer_el = document.createElement("p");
-				answer_el.textContent = `${value.modelNameUser} ответ: ...`;
+				let has_api_key = !!value.api_key;
+				answer_el.textContent = `${value.modelNameUser} ответ: ${has_api_key ? "..." : "нет api key"}`;
 				el_answer_text.insertAdjacentElement('beforebegin', answer_el);
 
 				value.textElement = answer_el;
 
-				getAIAnswer(value, AIRequestText, (answer_text) => {
-					value.textElement.textContent = `${value.modelNameUser} ответ: ${answer_text}`;
-				});
+				if (has_api_key) {
+					getAIAnswer(value, AIRequestText, (answer_text) => {
+						value.textElement.textContent = `${value.modelNameUser} ответ: ${answer_text}`;
+					});
+				}
 			});
 	}
 

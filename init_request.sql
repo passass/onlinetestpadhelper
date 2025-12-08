@@ -24,13 +24,13 @@ CREATE TABLE IF NOT EXISTS questions (
 );
 
 CREATE TABLE IF NOT EXISTS user_free_answers (
+    id SERIAL PRIMARY KEY,
     user_id SERIAL,
     question_id SERIAL,
     answer TEXT NOT NULL,
     user_test_result_id INT,
     answered_at timestamptz DEFAULT NOW(),
 
-    PRIMARY KEY (question_id, user_id),
     FOREIGN KEY (user_test_result_id) REFERENCES user_test_result(id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -88,19 +88,42 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    test_result user_test_result;
+    test_result_id INTEGER;
 BEGIN
-    IF EXISTS (SELECT * FROM user_answers ua JOIN questions q ON ua.question_id = q.id WHERE q.test_id = p_test_id AND user_test_result_id IS NULL) THEN
-        INSERT INTO user_test_result (test_id, user_id, result) 
-        VALUES (p_test_id, p_user_id, p_result)
-        RETURNING * INTO test_result;
+    -- Проверяем, есть ли несвязанные ответы (в user_answers ИЛИ user_free_answers) на вопросы из этого теста
+    IF EXISTS (
+        SELECT 1 FROM user_answers ua
+        JOIN questions q ON ua.question_id = q.id
+        WHERE q.test_id = p_test_id AND ua.user_test_result_id IS NULL
+    ) OR EXISTS (
+        SELECT 1 FROM user_free_answers ufa
+        JOIN questions q ON ufa.question_id = q.id
+        WHERE q.test_id = p_test_id AND ufa.user_test_result_id IS NULL
+    ) THEN
 
+        -- Вставляем запись результата теста
+        INSERT INTO user_test_result (test_id, user_id, result)
+        VALUES (p_test_id, p_user_id, p_result)
+        RETURNING id INTO test_result_id;
+
+        -- Обновляем user_answers
         UPDATE user_answers
-        SET user_test_result_id = test_result.id
+        SET user_test_result_id = test_result_id
         FROM questions
         WHERE user_answers.question_id = questions.id
-        AND questions.test_id = p_test_id
-        AND user_answers.user_test_result_id IS NULL;
+          AND questions.test_id = p_test_id
+          AND user_answers.user_id = p_user_id
+          AND user_answers.user_test_result_id IS NULL;
+
+        -- Обновляем user_free_answers
+        UPDATE user_free_answers
+        SET user_test_result_id = test_result_id
+        FROM questions
+        WHERE user_free_answers.question_id = questions.id
+          AND questions.test_id = p_test_id
+          AND user_free_answers.user_id = p_user_id
+          AND user_free_answers.user_test_result_id IS NULL;
+
     END IF;
 END;
 $$;
@@ -119,18 +142,27 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     RETURN QUERY
+    WITH ranked_answers AS (
+        SELECT 
+            a.id AS answer_id,
+            a.answer AS answer_text,
+            ua.answered_at,
+            utr.user_id AS best_user_id,
+            utr.result AS best_result,
+            DENSE_RANK() OVER (ORDER BY utr.result DESC, ua.answered_at DESC) as rnk
+        FROM answers a
+        JOIN user_answers ua ON a.id = ua.answer_id
+        JOIN user_test_result utr ON ua.user_test_result_id = utr.id
+        WHERE ua.question_id = p_question_id
+    )
     SELECT 
-        a.id AS answer_id,
-        a.answer AS answer_text,
-        ua.answered_at,
-        utr.user_id AS best_user_id,
-        utr.result AS best_result
-    FROM answers a
-    JOIN user_answers ua ON a.id = ua.answer_id
-    JOIN user_test_result utr ON ua.user_test_result_id = utr.id
-    WHERE ua.question_id = p_question_id
-    ORDER BY utr.result DESC, ua.answered_at DESC
-    LIMIT 1;
+        ra.answer_id,
+        ra.answer_text,
+        ra.answered_at,
+        ra.best_user_id,
+        ra.best_result
+    FROM ranked_answers ra
+    WHERE ra.rnk = 1;
 END;
 $$;
 
@@ -164,15 +196,28 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    user_free_answers_record user_free_answers;
+    v_existing_id INTEGER;
 BEGIN
-    INSERT INTO user_free_answers (user_id, question_id, answer)
-    VALUES (p_user_id, p_question_id, p_answer_text)
-    ON CONFLICT (user_id, question_id) DO UPDATE
-    SET answer = p_answer_text
-    RETURNING * INTO user_free_answers_record;
+    -- Ищем существующую непривязанную запись (user_test_result_id IS NULL)
+    SELECT id
+    INTO v_existing_id
+    FROM user_free_answers
+    WHERE user_id = p_user_id
+      AND question_id = p_question_id
+      AND user_test_result_id IS NULL
+    LIMIT 1;
 
-    user_free_answers_record.answered_at = NOW();
+    IF v_existing_id IS NOT NULL THEN
+        -- Обновляем существующую "свободную" запись
+        UPDATE user_free_answers
+        SET answer = p_answer_text,
+            answered_at = NOW()
+        WHERE id = v_existing_id;
+    ELSE
+        -- Вставляем новую запись (может быть привязана позже)
+        INSERT INTO user_free_answers (user_id, question_id, answer)
+        VALUES (p_user_id, p_question_id, p_answer_text);
+    END IF;
 END;
 $$;
 
