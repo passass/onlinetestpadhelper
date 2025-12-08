@@ -942,8 +942,9 @@ async function getQuestionData() {
 			oth_form_data.best_user_answer_element.textContent = "Лучшего ответа не найдено";
 			return;
 		}
-
-		oth_form_data.best_user_answer_element.textContent = `Лучший ответ из пользователей - ${bestAnswer[0].best_result}, ответ: ${await bestAnswer.reduce((prev, cur) => (prev.answer_text ?? "") + cur.answer_text, "")}`;
+		let answer = await bestAnswer.map((value, index, arr) => value.answer_text).join("; ")
+		console.log(bestAnswer, answer)
+		oth_form_data.best_user_answer_element.textContent = `Лучший ответ из пользователей - ${bestAnswer[0].best_result}, ответ: ${answer}`;
 	})
 }
 
