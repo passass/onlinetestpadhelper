@@ -99,7 +99,7 @@ const aiModels = [
 		modelName: "gemini-2.5-flash",
 		modelNameUser: "gemini 2.5 flash",
 		textElement: null,
-		api_key: "AIzaSyDzmRqnMfAx0bR4-rESlJH19xtDfyIeaZs",
+		api_key: window.googleai_api_key,
 		type: "googleai",
 	},
 	{
@@ -508,7 +508,7 @@ function getAIAnswer_common(AIModel, content, callback) {
 }
 
 function getAIAnswer_googleai(AIModel, prompt, callback) {
-	const API_KEY = "AIzaSyDzmRqnMfAx0bR4-rESlJH19xtDfyIeaZs";
+	const API_KEY = AIModel.api_key;
 	const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${AIModel.modelName}:generateContent?key=${API_KEY}`;
 
 	fetch(API_URL, {
