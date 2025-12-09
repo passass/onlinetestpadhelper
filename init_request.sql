@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS questions (
     id SERIAL PRIMARY KEY,
     question TEXT NOT NULL,
-    question_type SERIAL,
-    test_id SERIAL,
+    question_type INTEGER,
+    test_id INTEGER,
     
     FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE,
     FOREIGN KEY (question_type) REFERENCES question_types(id) ON DELETE SET NULL
@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS questions (
 
 CREATE TABLE IF NOT EXISTS user_free_answers (
     id SERIAL PRIMARY KEY,
-    user_id SERIAL,
-    question_id SERIAL,
+    user_id INTEGER,
+    question_id INTEGER,
     answer TEXT NOT NULL,
     user_test_result_id INT,
     answered_at timestamptz DEFAULT NOW(),
@@ -39,16 +39,16 @@ CREATE TABLE IF NOT EXISTS user_free_answers (
 CREATE TABLE IF NOT EXISTS answers (
     id SERIAL PRIMARY KEY,
     answer TEXT NOT NULL,
-    question_id SERIAL,
+    question_id INTEGER,
     
     FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS user_answers (
     id SERIAL PRIMARY KEY,
-    user_id INT,
-    question_id INT,
-    answer_id INT,
+    user_id INTEGER,
+    question_id INTEGER,
+    answer_id INTEGER,
     user_test_result_id INT,
     answered_at timestamptz DEFAULT NOW(),
     
@@ -60,8 +60,8 @@ CREATE TABLE IF NOT EXISTS user_answers (
 
 CREATE TABLE IF NOT EXISTS correct_answers (
     id SERIAL PRIMARY KEY,
-    question_id SERIAL,
-    answer_id SERIAL,
+    question_id INTEGER,
+    answer_id INTEGER,
 
     FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
     FOREIGN KEY (answer_id) REFERENCES answers(id)  ON DELETE CASCADE
@@ -69,8 +69,8 @@ CREATE TABLE IF NOT EXISTS correct_answers (
 
 CREATE TABLE IF NOT EXISTS user_test_result (
     id SERIAL PRIMARY KEY,
-    test_id INT,
-    user_id INT,
+    test_id INTEGER,
+    user_id INTEGER,
     result INT,
     created_at timestamptz DEFAULT NOW(),
 
@@ -140,29 +140,59 @@ RETURNS TABLE(
 ) 
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_question_type INTEGER;
 BEGIN
-    RETURN QUERY
-    WITH ranked_answers AS (
+    SELECT question_type INTO v_question_type
+    FROM questions
+    WHERE id = p_question_id;
+
+    IF v_question_type = 3 OR v_question_type = 4 THEN
+        RETURN QUERY
+        WITH ranked_answers AS (
+            SELECT 
+                ufa.id AS answer_id,
+                ufa.answer AS answer_text,
+                ufa.answered_at,
+                utr.user_id AS best_user_id,
+                utr.result AS best_result,
+                DENSE_RANK() OVER (ORDER BY utr.result DESC, ufa.answered_at DESC) as rnk
+            FROM user_free_answers ufa
+            JOIN user_test_result utr ON ufa.user_test_result_id = utr.id
+            WHERE ufa.question_id = p_question_id
+        )
         SELECT 
-            a.id AS answer_id,
-            a.answer AS answer_text,
-            ua.answered_at,
-            utr.user_id AS best_user_id,
-            utr.result AS best_result,
-            DENSE_RANK() OVER (ORDER BY utr.result DESC, ua.answered_at DESC) as rnk
-        FROM answers a
-        JOIN user_answers ua ON a.id = ua.answer_id
-        JOIN user_test_result utr ON ua.user_test_result_id = utr.id
-        WHERE ua.question_id = p_question_id
-    )
-    SELECT 
-        ra.answer_id,
-        ra.answer_text,
-        ra.answered_at,
-        ra.best_user_id,
-        ra.best_result
-    FROM ranked_answers ra
-    WHERE ra.rnk = 1;
+            ra.answer_id,
+            ra.answer_text,
+            ra.answered_at,
+            ra.best_user_id,
+            ra.best_result
+        FROM ranked_answers ra
+        WHERE ra.rnk = 1;
+    ELSE
+        RETURN QUERY
+        WITH ranked_answers AS (
+            SELECT 
+                a.id AS answer_id,
+                a.answer AS answer_text,
+                ua.answered_at,
+                utr.user_id AS best_user_id,
+                utr.result AS best_result,
+                DENSE_RANK() OVER (ORDER BY utr.result DESC, ua.answered_at DESC) as rnk
+            FROM answers a
+            JOIN user_answers ua ON a.id = ua.answer_id
+            JOIN user_test_result utr ON ua.user_test_result_id = utr.id
+            WHERE ua.question_id = p_question_id
+        )
+        SELECT 
+            ra.answer_id,
+            ra.answer_text,
+            ra.answered_at,
+            ra.best_user_id,
+            ra.best_result
+        FROM ranked_answers ra
+        WHERE ra.rnk = 1;
+    END IF;
 END;
 $$;
 
