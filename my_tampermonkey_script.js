@@ -174,6 +174,139 @@ function isMatchingTagName(el, tagname) {
 	return el.tagName && el.tagName.toLowerCase() === tagname;
 }
 
+function containsVariant(array, variant) {
+	if (!Array.isArray(array)) return false;
+	return array.some(item => item.trim().toLowerCase() === variant.trim().toLowerCase());
+}
+
+function markBestAndAIAnswers() {
+    if (!oth_form_data.question_variants 
+		|| !oth_form_data.question_variants.length 
+		|| (oth_form_data.question_type != 1 && oth_form_data.question_type != 2)) {
+        return;
+    }
+
+	let trueAnswerMatch = oth_form_data.el_answer_text.textContent.match(/Правильный ответ: (.+)\.$/);
+	let trueAnswerParsed = null;
+	if (trueAnswerMatch) {
+		trueAnswerParsed = trueAnswerMatch[1].split(";")
+	}
+
+    let bestAnswerText = oth_form_data.best_user_answer_element?.textContent || '';
+    const bestAnswerMatch = bestAnswerText.match(/Лучший ответ из пользователей - (\d+), ответ: (.+)/);
+    let bestAnswerParsed = null;
+    if (bestAnswerMatch && ((+bestAnswerMatch[1]) >= 80)) {
+        bestAnswerParsed = parseAIResponse(bestAnswerMatch[2].trim(), oth_form_data.question_type, oth_form_data.question_variants);
+    }
+
+    const aiResponses = aiModels
+	.map((value, index, array) => value.textElement.textContent)
+	.filter((value, index, array) => value != "..." && !value.match(/__.*/));
+
+    let answer_container_div = document.querySelector("#d-q-ans-container > div");
+    if (!answer_container_div) return;
+
+	let isMarked = false;
+    for (let el of answer_container_div.childNodes) {
+        if (el.className && el.className.match(/item\s*otp-row-1/)) {
+            const label_span_p = el.querySelector("span > p");
+            if (!label_span_p) continue;
+
+            const variantText = label_span_p.textContent.trim();
+
+			if (trueAnswerParsed) {
+				if (containsVariant(trueAnswerParsed, variantText)) {
+					temporarilyGlow(label_span_p);	
+					isMarked = true;
+				}
+			} else if (bestAnswerParsed && containsVariant(bestAnswerParsed, variantText)) {
+                temporarilyGlow(label_span_p);
+				isMarked = true;
+            } else {
+                for (const aiResp of aiResponses) {
+                    const parsedAiResp = parseAIResponse(aiResp, oth_form_data.question_type, oth_form_data.question_variants);
+                    if (parsedAiResp && containsVariant(parsedAiResp, variantText)) {
+                        temporarilyGlow(label_span_p);
+						isMarked = true;
+						break;
+                    }
+                }
+            }
+        }
+
+		if (isMarked && oth_form_data.question_type == 1)
+			break;
+    }
+}
+
+function parseAIResponse(response, questionType, variants) {
+    if (!response || !variants || !variants.length) return null;
+    const lowerVariants = variants.map(v => v.toLowerCase().trim());
+
+    function findMatches(text) {
+        const matches = [];
+        const lowerText = text.toLowerCase();
+
+        for (const variant of lowerVariants) {
+            const escapedVariant = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            
+            const regex = new RegExp('\\b' + escapedVariant + '\\b', 'gi');
+            
+            if (regex.test(lowerText)) {
+                const originalVariant = variants[lowerVariants.indexOf(variant)];
+                if (!matches.includes(originalVariant)) {
+                    matches.push(originalVariant);
+                }
+            } else {
+                if (lowerText.includes(variant)) {
+                    const originalVariant = variants[lowerVariants.indexOf(variant)];
+                    if (!matches.includes(originalVariant)) {
+                        matches.push(originalVariant);
+                    }
+                }
+            }
+        }
+        return matches;
+    }
+
+    switch (questionType) {
+        case 1:
+            const singleMatches = findMatches(response);
+            // Возвращаем первый найденный вариант или null
+            return singleMatches.length > 0 ? [singleMatches[0]] : null;
+
+        case 2:
+            const multiMatches = findMatches(response);
+            return multiMatches.length > 0 ? multiMatches : null;
+
+        default:
+            return null;
+    }
+}
+
+function temporarilyGlow(element) {
+    // const originalFontWeight = element.style.fontWeight;
+    // element.style.fontWeight = 'bold';
+
+    // setTimeout(() => {
+    //     element.style.fontWeight = originalFontWeight;
+    // }, 100);
+
+	const oldText = element.textContent;
+	element.textContent = oldText + "+";
+	setTimeout(() => {
+        element.textContent = oldText;
+    }, 100);
+}
+
+function addRightArrowHandler() {
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'ArrowRight') {
+            setTimeout(markBestAndAIAnswers, 100);
+        }
+    });
+}
+
 function getQuestionElement() {
 	const slider_container = document.querySelector("#d-q-ans-container > div.slider-container > div.item")
 
@@ -393,21 +526,22 @@ function getQuestionVariants() {
 }
 
 
-function getAIAnswerSuccessCallback(data, callback) {
+function getAIAnswerText(data) {
 	const error_message =
 		data.error &&
 		data.error.message &&
 		data.error.message &&
 		data.error.message.toLowerCase();
 	if (error_message) {
-		if (error_message.match(/rate limit exceeded.*/)) {
-			callback("Достигнут лимит запросов");
+		console.log(error_message);
+		if (error_message.includes("rate limit exceeded")) {
+			return ["__Достигнут лимит запросов", false];
 		} else if (
 			error_message.match(/.*user\s*location\s*is\s*not\s*supported.*/)
 		) {
-			callback("ВКЛЮЧИ ВПН");
+			return ["__ВКЛЮЧИ ВПН", false];
 		}
-		return;
+		return ["__Ошибка", false];
 	}
 
 	try {
@@ -432,86 +566,57 @@ function getAIAnswerSuccessCallback(data, callback) {
 			);
 
 		answer_text = answer_text.replace(/\n/g, "").trim();
-		callback(answer_text);
+		return [answer_text, true];
 	} catch {
-		callback("Ошибка");
+		return ["__Ошибка", false];
 	}
 }
 
-function getAIAnswerErrorCallback(error, callback) {
-	if (
-		error.error &&
-		error.error.message &&
-		error.error.message.toLowerCase().match(/rate limit exceeded.*/)
-	)
-		callback("Достигнут лимит запросов");
+async function getAIAnswer_common(AIModel, content, callback) {
+	let data = {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			model: AIModel.modelName,
+			messages: [
+				{
+					role: "user",
+					content: content,
+				},
+			],
+		}),
+	}
+	let api_keys;
+	if (!Array.isArray(AIModel.api_key)) {
+		api_keys = [AIModel.api_key]
+	}
 	else {
-		console.error("Error:", error);
-		callback("Ошибка");
+		api_keys = AIModel.api_key;
 	}
+
+	let last_answer;
+	for (const api_key of api_keys) {
+		data.headers.Authorization = `Bearer ${api_key}`;
+		const response = await fetch(AIModel.url, data);
+		const response_json = await response.json();
+		const [answer_text, answer_ok] = getAIAnswerText(response_json)
+		last_answer = answer_text
+		if (!response.ok) continue;
+
+		if (answer_ok)
+			return {ok: answer_ok, answer_text: answer_text};
+	}
+
+	return {ok: false, answer_text: last_answer};
 }
 
-function getAIAnswerHF(AIModel, content, callback) {
-	fetch(AIModel.url ?? "https://openrouter.ai/api/v1/chat/completions", {
-		method: "POST",
-		headers: {
-			Authorization: AIModel.api_key ?? `Bearer ${window.sk_api_key}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			model: AIModel.modelName,
-			messages: [
-				{
-					role: "user",
-					content: content,
-				},
-			],
-		}),
-	})
-		.then((response) => {
-			return response.json();
-		})
-		.then((data) => {
-			getAIAnswerSuccessCallback(data, callback);
-		})
-		.catch((error) => {
-			getAIAnswerErrorCallback(error, callback);
-		});
-}
-
-function getAIAnswer_common(AIModel, content, callback) {
-	fetch(AIModel.url ?? "https://openrouter.ai/api/v1/chat/completions", {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${AIModel.api_key ?? window.sk_api_key}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			model: AIModel.modelName,
-			messages: [
-				{
-					role: "user",
-					content: content,
-				},
-			],
-		}),
-	})
-		.then((response) => {
-			return response.json();
-		})
-		.then((data) => {
-			getAIAnswerSuccessCallback(data, callback);
-		})
-		.catch((error) => {
-			getAIAnswerErrorCallback(error, callback);
-		});
-}
-
-function getAIAnswer_googleai(AIModel, prompt, callback) {
+async function getAIAnswer_googleai(AIModel, prompt, callback) {
 	const API_KEY = AIModel.api_key;
 	const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${AIModel.modelName}:generateContent?key=${API_KEY}`;
 
-	fetch(API_URL, {
+	let response = await fetch(API_URL, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -527,28 +632,37 @@ function getAIAnswer_googleai(AIModel, prompt, callback) {
 				},
 			],
 		}),
-	})
-		.then((response) => {
-			return response.json();
-		})
-		.then((data) => {
-			getAIAnswerSuccessCallback(data, callback);
-		})
-		.catch((error) => {
-			getAIAnswerErrorCallback(error, callback);
-		});
+	});
+	let response_json = await response.json();
+	const [answer_text, answer_ok] = getAIAnswerText(response_json)
+	if (!response_json) return {ok: false, answer_text: answer_text};
+	if (!response.ok) return {ok: false, answer_text: answer_text};
+	
+
+	return {ok: answer_ok, answer_text: answer_text};
 }
 
-function getAIAnswer(AIModel, content, callback) {
-	switch (AIModel.type) {
-		case "googleai":
-			getAIAnswer_googleai(AIModel, content, callback);
-			break;
-		default:
-			//case "openrouter":
-			getAIAnswer_common(AIModel, content, callback);
-			break;
+async function getAIAnswer(AIModel, content) {
+	let result;
+	try {
+		switch (AIModel.type) {
+			case "googleai":
+				result = await getAIAnswer_googleai(AIModel, content);
+				break;
+			default:
+				//case "openrouter":
+				result = await getAIAnswer_common(AIModel, content);
+				break;
+		}
+	} catch (e) {
+		console.log(e)
+		result = {
+			ok: false,
+			answer_text: "ошибка"
+		};
 	}
+
+	return result;
 }
 
 const db_types = {
@@ -852,7 +966,6 @@ async function getCorrectAnswer() {
 			response = await db.selectWhere("correct_answers", {question_id: oth_form_data.question_data.id})
 
 			response_json = await response.json();
-
 			if (response_json.length === 0)
 				return;
 
@@ -913,7 +1026,7 @@ async function getQuestionData() {
 			switch (oth_form_data.question_type)
 			{
 				case 2:
-					oth_form_data.el_answer_text.textContent += ` Правильные ответы: ${correct_answer.join("; ")}.`;
+					oth_form_data.el_answer_text.textContent += ` Правильный ответ: ${correct_answer.join("; ")}.`;
 					break;
 				default:
 					oth_form_data.el_answer_text.textContent += ` Правильный ответ: ${correct_answer}.`;
@@ -943,7 +1056,6 @@ async function getQuestionData() {
 			return;
 		}
 		let answer = await bestAnswer.map((value, index, arr) => value.answer_text).join("; ")
-		console.log(bestAnswer, answer)
 		oth_form_data.best_user_answer_element.textContent = `Лучший ответ из пользователей - ${bestAnswer[0].best_result}, ответ: ${answer}`;
 	})
 }
@@ -1035,13 +1147,15 @@ function createUserOutput() {
 				value.textElement = answer_el;
 
 				if (has_api_key) {
-					getAIAnswer(value, AIRequestText, (answer_text) => {
-						value.textElement.textContent = `${value.modelNameUser} ответ: ${answer_text}`;
+					getAIAnswer(value, AIRequestText)
+					.then((result) => {
+						if (result) {
+							value.textElement.textContent = `${value.modelNameUser} ответ: ${result.answer_text}`;
+						}
 					});
 				}
 			});
 	}
-
 
 	oth_form_data.question_type = question_type
 	oth_form_data.el_answer_text = el_answer_text
@@ -1111,6 +1225,7 @@ async function main_func() {
 	await getQuestionData();
 
 	handleFormSubmit();
+	addRightArrowHandler();
 }
 
 (function () {
