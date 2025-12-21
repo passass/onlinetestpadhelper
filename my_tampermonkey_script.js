@@ -10,6 +10,11 @@
 // ==/UserScript==
 
 //const db_type = "supabase";
+
+if (window.oth_run)
+	return;
+
+window.oth_run = true;
 const db_type = "render_flask";
 function objectToStringWithSeparator(
 	obj,
