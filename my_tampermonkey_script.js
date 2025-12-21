@@ -11,10 +11,7 @@
 
 //const db_type = "supabase";
 
-if (window.oth_run)
-	return;
 
-window.oth_run = true;
 const db_type = "render_flask";
 function objectToStringWithSeparator(
 	obj,
@@ -1235,14 +1232,17 @@ async function main_func() {
 
 (function () {
 	"use strict";
+	if (window.oth_run)
+		return;
+	window.oth_run = true;
 	const head_el = document.getElementsByTagName("head")[0];
 	const disabler_restriction = document.createElement("meta");
 	disabler_restriction.content =
 		"default-src 'self'; script-src 'self' 'unsafe-inline'";
 	disabler_restriction.httpEquiv = "Content-Security-Policy";
 	disabler_restriction.content = "upgrade-insecure-requests";
-
 	head_el.appendChild(disabler_restriction);
+
 	const timeoutId = setTimeout(() => {
 		try {
 main_func()
