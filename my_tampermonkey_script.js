@@ -11,7 +11,8 @@
 
 //const db_type = "supabase";
 
-
+const isAddingExtraText = false;
+const isCopyRequestButtonEnabled = false;
 const db_type = "render_flask";
 function objectToStringWithSeparator(
 	obj,
@@ -97,20 +98,20 @@ const question_types = {
 }
 
 const aiModels = [
-	{
-		modelName: "gemini-2.5-flash",
-		modelNameUser: "gemini 2.5 flash",
-		textElement: null,
-		api_key: window.googleai_api_key,
-		type: "googleai",
-	},
-	{
-		url: "https://router.huggingface.co/v1/chat/completions",
-		api_key: window.hf_api_key,
-		modelName: "Qwen/Qwen3-4B-Instruct-2507:nscale",
-		modelNameUser: "Qwen3 4B Instruct 2507",
-		textElement: null,
-	},
+	// {
+	// 	modelName: "gemini-2.5-flash",
+	// 	modelNameUser: "gemini 2.5 flash",
+	// 	textElement: null,
+	// 	api_key: window.googleai_api_key,
+	// 	type: "googleai",
+	// },
+	// {
+	// 	url: "https://router.huggingface.co/v1/chat/completions",
+	// 	api_key: window.hf_api_key,
+	// 	modelName: "Qwen/Qwen3.5-27B:novita",
+	// 	modelNameUser: "Qwen3.5",
+	// 	textElement: null,
+	// },
 	/*{
 		url: "https://router.huggingface.co/v1/chat/completions",
 		api_key: window.hf_api_key,
@@ -128,17 +129,24 @@ const aiModels = [
 	{
 		url: "https://router.huggingface.co/v1/chat/completions",
 		api_key: window.hf_api_key,
-		modelName: "moonshotai/Kimi-K2-Thinking:novita",
-		modelNameUser: "Kimi-K2",
+		modelName: "moonshotai/Kimi-K2.6:novita",
+		modelNameUser: "Kimi-K2.6",
 		textElement: null,
 	},
 	{
 		url: "https://router.huggingface.co/v1/chat/completions",
 		api_key: window.hf_api_key,
-		modelName: "deepseek-ai/DeepSeek-V3.2-Exp:novita",
-		modelNameUser: "DeepSeek V3.2 Exp HF",
+		modelName: "deepseek-ai/DeepSeek-V4-Flash:novita",
+		modelNameUser: "DeepSeek V4 Flash",
 		textElement: null,
 	},
+	// {
+	// 	url: "https://router.huggingface.co/v1/chat/completions",
+	// 	api_key: window.hf_api_key,
+	// 	modelName: "zai-org/GLM-5:novita",
+	// 	modelNameUser: "GLM V5",
+	// 	textElement: null,
+	// },
 ];
 
 function getChildWhere(main_element, condition) {
@@ -765,11 +773,15 @@ const db = {
 function handleFormSubmit() {
 	const testform = document.getElementById("testform");
 	const submit_button = document.getElementById("btnNext");
+	
+	if (OnNavButtonClick == null) {
+		var OnNavButtonClick = () => false;
+	}
 
 	if (!testform)
 		return;
 
-	submit_button.onclick = null;
+	const oldButtonClick = submit_button.onclick = null;
 	let handleClick = async (e) => {
 		if (!question_types[oth_form_data.question_type].work_with_db)
 			return;
@@ -831,13 +843,13 @@ function handleFormSubmit() {
 				throw new Error(`Ошибка сервера: ${response.status}`);
 			}
 
+			submit_button.removeEventListener("click", handleClick);
+			submit_button.click();
+			let ret = await OnNavButtonClick(submit_button)
+
 		} catch (error) {
 			console.error("Ошибка при отправке:", error);
 		}
-
-		submit_button.removeEventListener("click", handleClick);
-		submit_button.click();
-		let ret = await OnNavButtonClick(submit_button)
 		submit_button.onclick = () => {
 			OnNavButtonClick(submit_button)
 		};
@@ -1010,20 +1022,26 @@ async function getQuestionData() {
 
 	const data = await response_get_question_with_answers.json();
 
-	if (!data.question)
+	if (!data.question && isAddingExtraText)
 		oth_form_data.el_answer_text.textContent += " Вопрос не удалось отправить.";
 
 	const createdSomething = data.created_something;
 
 	oth_form_data.question_data = data.question;
 	oth_form_data.answers_data = data.answers;
-	if (createdSomething === false)
-		oth_form_data.el_answer_text.textContent += " Вопрос обнаружен.";
-	else
-		oth_form_data.el_answer_text.textContent += " Вопрос отправлен на сервер.";
+
+	if (isAddingExtraText) { 
+		if (createdSomething === false)
+			oth_form_data.el_answer_text.textContent += " Вопрос обнаружен.";
+		else
+			oth_form_data.el_answer_text.textContent += " Вопрос отправлен на сервер.";
+	}
 
 	getCorrectAnswer()
 	.then((correct_answer) => {
+		if (!isAddingExtraText) {
+			return;
+		}
 		if (correct_answer)
 			switch (oth_form_data.question_type)
 			{
@@ -1101,8 +1119,10 @@ function createUserOutput() {
 		question_variants = getQuestionVariants_result[0]
 		question_type = getQuestionVariants_result[1]
 
-		let el_answer_text_textContent = `Вопрос прочитан.`;
-		el_answer_text.textContent = el_answer_text_textContent;
+		if (isAddingExtraText) {
+			let el_answer_text_textContent = `Вопрос прочитан.`;
+			el_answer_text.textContent = el_answer_text_textContent;
+		}
 	} catch (e) {
 		el_answer_text.textContent = "Ошибка";
 		console.log("ошибка", e)
@@ -1128,15 +1148,15 @@ function createUserOutput() {
 			+ question_types[question_type].getAITextRequest(question_string, question_variants);
 
 		
-		const AIRequestCopyTextButton = document.createElement("input");
-		AIRequestCopyTextButton.value = "Скопировать запрос";
-		AIRequestCopyTextButton.type = "button";
-		AIRequestCopyTextButton.addEventListener("click", (ev) => {
-			copyToClipboard(AIRequestText)
-		});
-
-
-		el_answer_text.insertAdjacentElement('afterend', AIRequestCopyTextButton);
+		if (isCopyRequestButtonEnabled) {
+			const AIRequestCopyTextButton = document.createElement("input");
+			AIRequestCopyTextButton.value = "Скопировать запрос";
+			AIRequestCopyTextButton.type = "button";
+			AIRequestCopyTextButton.addEventListener("click", (ev) => {
+				copyToClipboard(AIRequestText)
+			});
+			el_answer_text.insertAdjacentElement('afterend', AIRequestCopyTextButton);
+		}
 
 		const isSendingAIRequest = true;
 		if (isSendingAIRequest && AIRequestText != "")
@@ -1223,10 +1243,14 @@ async function main_func() {
 	if (!createUserOutput_result)
 		return;
 	oth_form_data.test_data = await getTestData();
-	oth_form_data.user_data = await getUserData();
-	await getQuestionData();
+	try {
+		oth_form_data.user_data = await getUserData();
+		await getQuestionData();
 
-	handleFormSubmit();
+		// handleFormSubmit();
+	} catch {
+
+	}
 	addRightArrowHandler();
 }
 
@@ -1251,3 +1275,6 @@ main_func()
 }
 }, 1000);
 })();
+
+
+
