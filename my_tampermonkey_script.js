@@ -11,8 +11,10 @@
 
 //const db_type = "supabase";
 
-const isAddingExtraText = false;
-const isCopyRequestButtonEnabled = false;
+const isAddingExtraText = true;
+const isCopyRequestButtonEnabled = true;
+const textFontSize = 14;
+const marginBottomSize = 5;
 const db_type = "render_flask";
 function objectToStringWithSeparator(
 	obj,
@@ -998,7 +1000,14 @@ async function getCorrectAnswer() {
 
 async function getQuestionData() {
 
-	if (!oth_form_data.question_type || !question_types[oth_form_data.question_type] || !question_types[oth_form_data.question_type].work_with_db) {
+	if (
+		(
+			!oth_form_data.question_type
+			|| !question_types[oth_form_data.question_type]
+			|| !question_types[oth_form_data.question_type].work_with_db
+		)
+		&& isAddingExtraText
+	) {
 		oth_form_data.el_answer_text.textContent += " Данный тип вопроса не поддерживается.";
 		return;
 	}
@@ -1097,6 +1106,9 @@ function createUserOutput() {
 	const el_answer_text = document.createElement("p");
 	qtext_div.appendChild(el_answer_text);
 	qtext_div.style.display = "none";
+	
+	el_answer_text.style.fontSize = `${textFontSize}px`;
+	el_answer_text.style.marginBottom = `${marginBottomSize}px`
 
 	let el_question_string, question_string, question_variants, question_type;
 	try {
@@ -1163,6 +1175,8 @@ function createUserOutput() {
 			aiModels.forEach((value, index, arr) => {
 				const answer_el = document.createElement("p");
 				let has_api_key = !!value.api_key;
+				answer_el.style.fontSize = `${textFontSize}px`;
+				answer_el.style.marginBottom = `${marginBottomSize}px`
 				answer_el.textContent = `${value.modelNameUser} ответ: ${has_api_key ? "..." : "нет api key"}`;
 				el_answer_text.insertAdjacentElement('beforebegin', answer_el);
 
